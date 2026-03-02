@@ -18,6 +18,10 @@ import {
 } from '@webbolo/shared/pillboxes'
 import { createBase, stepBases } from '@webbolo/shared/bases'
 import { dropMine, checkMineDetonation, stepMineEffects } from '@webbolo/shared/mines'
+import {
+  createEngineer, sendEngineer, stepEngineer, killEngineer,
+  LGM_STATE,
+} from '@webbolo/shared/engineer'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -45,6 +49,13 @@ let baseEntities: ReturnType<typeof createBase>[] = []
 let pendingDetonations: { tileX: number, tileY: number, delay: number }[] = []
 let pendingFloods: { tileX: number, tileY: number, delay: number }[] = []
 let mineDropCooldown = 0
+
+// Engineer
+let engineer: ReturnType<typeof createEngineer> | null = null
+
+// Mouse cursor for engineer targeting
+let mouseScreenX = 0
+let mouseScreenY = 0
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -351,6 +362,46 @@ function renderFrame(alpha: number) {
     ctx.fill()
   }
 
+  // --- Render engineer ---
+  if (engineer && engineer.state !== LGM_STATE.IN_TANK) {
+    const ex = viewW / 2 + (engineer.x - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const ey = viewH / 2 + (engineer.y - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+
+    if (ex > -tileSize && ex < viewW + tileSize && ey > -tileSize && ey < viewH + tileSize) {
+      if (engineer.state === LGM_STATE.DEAD) {
+        // Dead — small red X
+        ctx.strokeStyle = '#cc2222'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(ex - 3, ey - 3)
+        ctx.lineTo(ex + 3, ey + 3)
+        ctx.moveTo(ex + 3, ey - 3)
+        ctx.lineTo(ex - 3, ey + 3)
+        ctx.stroke()
+      } else if (engineer.state === LGM_STATE.PARACHUTING) {
+        // Parachute — small green dot descending
+        ctx.fillStyle = '#88ff88'
+        ctx.beginPath()
+        ctx.arc(ex, ey, 3, 0, Math.PI * 2)
+        ctx.fill()
+        // Parachute canopy
+        ctx.strokeStyle = '#88ff88'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.arc(ex, ey - 6, 5, Math.PI, 0)
+        ctx.stroke()
+      } else {
+        // Walking or working — little green man
+        const isWorking = engineer.state === LGM_STATE.WORKING
+        ctx.fillStyle = isWorking ? '#ffff44' : '#44ff44'
+        ctx.fillRect(ex - 2, ey - 3, 4, 6)
+        // Hard hat
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(ex - 3, ey - 4, 6, 2)
+      }
+    }
+  }
+
   // --- Render player tank ---
   drawTank(camWorldX, camWorldY, tank.rotation, camWorldX, camWorldY, '#44aa44', '#226622')
 
@@ -374,7 +425,7 @@ function renderFrame(alpha: number) {
   const maxSpd = getTankSpeed(terrain)
 
   ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
-  ctx.fillRect(hudX, hudY + (barH + gap) * 4 + 4, barW + 60, 80)
+  ctx.fillRect(hudX, hudY + (barH + gap) * 4 + 4, barW + 80, 80)
   ctx.fillStyle = '#00ff88'
   ctx.font = '11px monospace'
   ctx.textAlign = 'left'
@@ -388,7 +439,8 @@ function renderFrame(alpha: number) {
   dbgY += 14
   ctx.fillText(`Space=shoot  Shells in flight: ${shells.length}`, dbgX, dbgY)
   dbgY += 14
-  ctx.fillText(`Reload: ${tank.reloadTimer > 0 ? tank.reloadTimer : 'Ready'}  Engineer: ${tank.hasEngineer ? 'Ready' : 'Dead'}`, dbgX, dbgY)
+  const engState = engineer ? ['InTank', 'Walking', 'Working', 'Returning', 'Dead', 'Parachute'][engineer.state] : '?'
+  ctx.fillText(`Engineer: ${engState}  Carried pills: ${tank.carriedPillboxes}  Click=send LGM`, dbgX, dbgY)
 
   // --- FPS counter ---
   frameCount++
@@ -465,6 +517,11 @@ function gameLoop(timestamp: number) {
       // Step chain detonations and flooding
       stepMineEffects(mapData.tiles, mapData.width, mapData.height, pendingDetonations, pendingFloods)
 
+      // Step engineer
+      if (engineer) {
+        stepEngineer(engineer, tank, mapData.tiles, mapData.width, pillboxEntities)
+      }
+
       // Age and remove impact flashes (visual only, 6 frames)
       for (let i = impactFlashes.length - 1; i >= 0; i--) {
         impactFlashes[i].age++
@@ -494,6 +551,33 @@ function onKeyUp(e: KeyboardEvent) {
   keys.delete(e.key)
 }
 
+function onMouseMove(e: MouseEvent) {
+  mouseScreenX = e.clientX
+  mouseScreenY = e.clientY
+}
+
+function onMouseClick(e: MouseEvent) {
+  if (!canvasRef.value || !tank || !mapData || !engineer) return
+
+  const canvas = canvasRef.value
+  const viewW = canvas.width
+  const viewH = canvas.height
+
+  // Convert screen click to world coordinates
+  const worldX = tank.x + (e.clientX - viewW / 2) * (WORLD_UNITS_PER_TILE / tileSize)
+  const worldY = tank.y + (e.clientY - viewH / 2) * (WORLD_UNITS_PER_TILE / tileSize)
+
+  // Convert to tile coordinates
+  const clickTileX = Math.floor(worldX / WORLD_UNITS_PER_TILE)
+  const clickTileY = Math.floor(worldY / WORLD_UNITS_PER_TILE)
+
+  // Bounds check
+  if (clickTileX < 0 || clickTileX >= mapData.width || clickTileY < 0 || clickTileY >= mapData.height) return
+
+  // Send engineer to the clicked tile
+  sendEngineer(engineer, tank, clickTileX, clickTileY, mapData.tiles, mapData.width, pillboxEntities)
+}
+
 onMounted(() => {
   if (!canvasRef.value) return
 
@@ -515,6 +599,9 @@ onMounted(() => {
     createBase(b.x, b.y, b.armor ?? 90, b.shells ?? 90, b.mines ?? 90)
   )
 
+  // Create engineer
+  engineer = createEngineer()
+
   // Spawn tank near the center of the map
   const spawnX = Math.floor(mapData.width / 2) + 2
   const spawnY = Math.floor(mapData.height / 2) + 2
@@ -533,6 +620,8 @@ onMounted(() => {
   window.addEventListener('resize', resize)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  canvasRef.value.addEventListener('mousemove', onMouseMove)
+  canvasRef.value.addEventListener('click', onMouseClick)
 })
 
 onUnmounted(() => {
@@ -540,6 +629,8 @@ onUnmounted(() => {
   window.removeEventListener('resize', resize)
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  canvasRef.value?.removeEventListener('mousemove', onMouseMove)
+  canvasRef.value?.removeEventListener('click', onMouseClick)
 })
 </script>
 

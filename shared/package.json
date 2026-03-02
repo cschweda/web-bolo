@@ -11,6 +11,7 @@
     "./pillboxes": "./pillboxes.js",
     "./bases": "./bases.js",
     "./mines": "./mines.js",
+    "./engineer": "./engineer.js",
     "./mapFormat": "./mapFormat.js"
   }
 }
