@@ -123,35 +123,48 @@ function drawTank(
   if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) return
   if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) return
 
-  const size = tileSize * 0.5
+  const size = tileSize * 0.6
   const angleRad = rotation * (Math.PI * 2 / BRADIANS_MAX)
 
   ctx.save()
   ctx.translate(screenX, screenY)
   ctx.rotate(angleRad)
 
-  // Tank body (rounded rect approximation)
+  // Glow outline for visibility
+  ctx.shadowColor = outlineColor
+  ctx.shadowBlur = 8
+
+  // Tank treads (dark rectangles on each side)
+  ctx.fillStyle = '#1a1a1a'
+  ctx.fillRect(-size * 0.75, -size * 0.75, size * 0.25, size * 1.5)
+  ctx.fillRect(size * 0.5, -size * 0.75, size * 0.25, size * 1.5)
+
+  // Tank body
   ctx.fillStyle = color
   ctx.beginPath()
-  ctx.roundRect(-size * 0.6, -size * 0.7, size * 1.2, size * 1.4, 3)
+  ctx.roundRect(-size * 0.5, -size * 0.65, size * 1.0, size * 1.3, 3)
   ctx.fill()
   ctx.strokeStyle = outlineColor
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = 2
   ctx.stroke()
 
-  // Turret (line pointing forward)
-  ctx.strokeStyle = outlineColor
-  ctx.lineWidth = 3
-  ctx.beginPath()
-  ctx.moveTo(0, -size * 0.2)
-  ctx.lineTo(0, -size * 1.0)
-  ctx.stroke()
+  ctx.shadowBlur = 0
 
-  // Turret dot
+  // Turret base (circle)
   ctx.fillStyle = outlineColor
   ctx.beginPath()
-  ctx.arc(0, -size * 0.2, 3, 0, Math.PI * 2)
+  ctx.arc(0, 0, size * 0.25, 0, Math.PI * 2)
   ctx.fill()
+
+  // Turret barrel (line pointing forward)
+  ctx.strokeStyle = outlineColor
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(0, -size * 1.1)
+  ctx.stroke()
+  ctx.lineCap = 'butt'
 
   ctx.restore()
 }
@@ -428,7 +441,7 @@ function renderFrame(alpha: number) {
   }
 
   // --- Render player tank ---
-  drawTank(camWorldX, camWorldY, tank.rotation, camWorldX, camWorldY, '#44aa44', '#226622')
+  drawTank(camWorldX, camWorldY, tank.rotation, camWorldX, camWorldY, '#e8c840', '#886620')
 
   // --- HUD ---
   const hudX = 12
@@ -639,8 +652,9 @@ onMounted(() => {
   engineer = createEngineer()
 
   // Spawn tank near the center of the map
-  const spawnX = Math.floor(mapData.width / 2) + 2
-  const spawnY = Math.floor(mapData.height / 2) + 2
+  // Spawn at map center (on the road intersection)
+  const spawnX = Math.floor(mapData.width / 2)
+  const spawnY = Math.floor(mapData.height / 2)
   tank = createTank(spawnX, spawnY)
 
   prevTankX = tank.x
