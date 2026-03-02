@@ -67,16 +67,19 @@ Do NOT open port 3000 publicly — nginx will proxy to it internally.
 ### 2.4 Install Node.js
 
 ```bash
-# Install Node.js 20 LTS via NodeSource
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Install Node.js 22 LTS via NodeSource
+# Security: Download the script first and inspect before executing
+curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh
+# Review: less /tmp/nodesource_setup.sh
+sudo -E bash /tmp/nodesource_setup.sh
 sudo apt-get install -y nodejs
 
 # Verify
-node --version   # v20.x.x
+node --version   # v22.x.x
 npm --version    # 10.x.x
 
-# Install Yarn 1.x (project requirement)
-sudo npm install -g yarn@1.22.22
+# Install pnpm (project requirement)
+sudo npm install -g pnpm@latest
 ```
 
 ---
@@ -87,9 +90,9 @@ sudo npm install -g yarn@1.22.22
 
 ```bash
 cd /home/webbolo
-git clone https://github.com/YOUR_USER/webbolo.git
+git clone https://github.com/cschweda/web-bolo.git webbolo
 cd webbolo
-yarn install --production
+pnpm install --prod
 ```
 
 ### 3.2 Environment Configuration
@@ -319,8 +322,10 @@ If you prefer Docker over bare-metal Node.js + PM2, the project includes Docker 
 ### 6.1 Install Docker
 
 ```bash
-# Install Docker
-curl -fsSL https://get.docker.com | sh
+# Install Docker — download and inspect before executing
+curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+# Review: less /tmp/get-docker.sh
+sudo sh /tmp/get-docker.sh
 sudo usermod -aG docker webbolo
 
 # Install Docker Compose
@@ -399,7 +404,7 @@ docker compose up -d --build
 ```bash
 cd /home/webbolo/webbolo
 git pull
-yarn install --production
+pnpm install --prod
 pm2 reload webbolo
 ```
 

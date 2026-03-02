@@ -7,5 +7,10 @@
     "build": "pnpm --filter webbolo-client build",
     "preview": "pnpm --filter webbolo-client preview",
     "test": "vitest"
+  },
+  "pnpm": {
+    "overrides": {
+      "serialize-javascript": ">=7.0.3"
+    }
   }
 }
