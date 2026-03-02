@@ -5,6 +5,7 @@
   "exports": {
     "./constants": "./constants.js",
     "./terrainTypes": "./terrainTypes.js",
+    "./mapGenerator": "./mapGenerator.js",
     "./physics": "./physics.js",
     "./mapFormat": "./mapFormat.js"
   }
