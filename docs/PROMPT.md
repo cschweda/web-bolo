@@ -28,11 +28,11 @@ The `AUDIT-March2026.md` documents remaining P2 issues (redundancies, structural
 
 ## Technology Stack
 
-- **Client:** HTML5 Canvas 2D, vanilla JavaScript (ES modules), Web Audio API
-- **Server:** Node.js, `ws` package for WebSocket
-- **Shared code:** `shared/` directory — physics, protocol, terrain, constants — identical on client and server
-- **Package manager:** Yarn 1.22.22
-- **Build:** No bundler required for dev. Optional esbuild for production.
+- **Client:** Nuxt 4 / Vue 3 / Nuxt UI 4 — HTML5 Canvas 2D game rendering, Web Audio API
+- **Server:** Node.js, `ws` package for WebSocket (separate from Nuxt's Nitro server)
+- **Shared code:** `shared/` directory — physics, protocol, terrain, constants — pure JS, no framework deps, identical on client and server
+- **Package manager:** pnpm (workspaces)
+- **Build:** Nuxt handles client bundling. No separate build step needed for dev.
 - **Test:** Vitest
 
 ## Critical Constants (from WinBolo source — doc 09 has the full set)
