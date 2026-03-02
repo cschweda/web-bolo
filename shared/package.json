@@ -9,6 +9,7 @@
     "./physics": "./physics.js",
     "./shells": "./shells.js",
     "./pillboxes": "./pillboxes.js",
+    "./bases": "./bases.js",
     "./mapFormat": "./mapFormat.js"
   }
 }

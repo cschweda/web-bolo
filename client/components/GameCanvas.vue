@@ -16,6 +16,7 @@ import {
   createPillbox, stepPillboxes,
   checkShellPillboxHits, checkShellTankHits,
 } from '@webbolo/shared/pillboxes'
+import { createBase, stepBases } from '@webbolo/shared/bases'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -35,6 +36,9 @@ let impactFlashes: { x: number, y: number, age: number }[] = []
 
 // Pillbox entities (created from map data)
 let pillboxEntities: ReturnType<typeof createPillbox>[] = []
+
+// Base entities (created from map data)
+let baseEntities: ReturnType<typeof createBase>[] = []
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -213,19 +217,21 @@ function renderFrame(alpha: number) {
   }
 
   // --- Render bases ---
-  for (const base of bases) {
-    const worldBX = base.x * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
-    const worldBY = base.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
-    const screenX = viewW / 2 + (worldBX - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
-    const screenY = viewH / 2 + (worldBY - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+  for (const base of baseEntities) {
+    const screenX = viewW / 2 + (base.x - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const screenY = viewH / 2 + (base.y - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
 
     if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) continue
     if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) continue
 
     const s = tileSize * 0.4
-    ctx.fillStyle = '#ddaa00'
+    const isNeutral = base.owner === 0xFF
+    const isFriendly = !isNeutral && base.owner === (tank?.playerIndex ?? 0)
+
+    // Base color: gold=neutral, green=friendly, red=enemy
+    ctx.fillStyle = isNeutral ? '#ddaa00' : isFriendly ? '#44cc44' : '#cc4444'
     ctx.fillRect(screenX - s, screenY - s, s * 2, s * 2)
-    ctx.strokeStyle = '#886600'
+    ctx.strokeStyle = isNeutral ? '#886600' : isFriendly ? '#227722' : '#882222'
     ctx.lineWidth = 1
     ctx.strokeRect(screenX - s, screenY - s, s * 2, s * 2)
     // Cross
@@ -235,6 +241,16 @@ function renderFrame(alpha: number) {
     ctx.moveTo(screenX, screenY - s * 0.6)
     ctx.lineTo(screenX, screenY + s * 0.6)
     ctx.stroke()
+
+    // Resource indicator (small dots showing supply level)
+    if (isFriendly) {
+      const totalPct = (base.armor + base.shells + base.mines) / (90 * 3)
+      const dotR = 2
+      ctx.fillStyle = totalPct > 0.5 ? '#88ff88' : totalPct > 0.2 ? '#ffff44' : '#ff4444'
+      ctx.beginPath()
+      ctx.arc(screenX, screenY + s + 5, dotR, 0, Math.PI * 2)
+      ctx.fill()
+    }
   }
 
   // --- Render pillboxes ---
@@ -426,6 +442,9 @@ function gameLoop(timestamp: number) {
       // Step pillboxes (detection, firing at player)
       stepPillboxes(pillboxEntities, tank, shells)
 
+      // Step bases (claiming, refueling, restocking)
+      stepBases(baseEntities, tank)
+
       // Age and remove impact flashes (visual only, 6 frames)
       for (let i = impactFlashes.length - 1; i >= 0; i--) {
         impactFlashes[i].age++
@@ -469,6 +488,11 @@ onMounted(() => {
   // Create pillbox entities from map data
   pillboxEntities = mapData.pillboxes.map((pb: any) =>
     createPillbox(pb.x, pb.y, pb.health ?? 15)
+  )
+
+  // Create base entities from map data
+  baseEntities = mapData.bases.map((b: any) =>
+    createBase(b.x, b.y, b.armor ?? 90, b.shells ?? 90, b.mines ?? 90)
   )
 
   // Spawn tank near the center of the map
