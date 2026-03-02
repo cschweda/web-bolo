@@ -1,0 +1,11 @@
+{
+  "name": "@webbolo/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./constants": "./constants.js",
+    "./terrainTypes": "./terrainTypes.js",
+    "./physics": "./physics.js",
+    "./mapFormat": "./mapFormat.js"
+  }
+}

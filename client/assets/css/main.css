@@ -1,0 +1,13 @@
+/* Game canvas should fill the viewport when playing */
+.game-container {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+}
+
+.game-container canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}

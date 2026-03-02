@@ -1,0 +1,11 @@
+{
+  "name": "webbolo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter webbolo-client dev",
+    "build": "pnpm --filter webbolo-client build",
+    "preview": "pnpm --filter webbolo-client preview",
+    "test": "vitest"
+  }
+}

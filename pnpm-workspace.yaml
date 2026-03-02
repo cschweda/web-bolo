@@ -1,0 +1,9 @@
+packages:
+  - shared
+  - client
+  - server
+
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - esbuild
+  - vue-demi
