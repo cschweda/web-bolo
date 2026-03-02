@@ -84,8 +84,8 @@
 - [x] Flood cascading to adjacent craters
 
 ### Step 8: Terrain Dynamics
-- [ ] Forest regrowth timer (simplified: regrow near existing forest after delay)
-- [ ] Bridge rendering: road placed on river tile renders as bridge
+- [x] Forest regrowth timer (simplified: regrow near existing forest after delay)
+- [x] Bridge rendering: road placed on river tile renders as bridge
 - [x] Building -> Halfbuilding -> Rubble two-stage destruction verified
 - [x] HUD displays armor, shells, mines, wood counts
 
