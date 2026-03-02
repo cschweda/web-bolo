@@ -13,88 +13,88 @@
 **Acceptance test:** Play for 10 minutes — drive around, destroy all pillboxes (retreating to bases to refuel), use the engineer to harvest/build, trigger mine chains near water. If it's fun, Phase 1A is done.
 
 ### Setup
-- [ ] Project directory structure created (`shared/`, `client/`, `docs/`)
-- [ ] `package.json` with workspace config and scripts
-- [ ] `shared/constants.js` — all game constants from doc 09
-- [ ] `shared/terrainTypes.js` — terrain enum, speed table, properties, mine helpers
+- [x] Project directory structure created (`shared/`, `client/`, `docs/`)
+- [x] `package.json` with workspace config and scripts
+- [x] `shared/constants.js` — all game constants from doc 09
+- [x] `shared/terrainTypes.js` — terrain enum, speed table, properties, mine helpers
 
 ### Step 1: Canvas + Tile Map
-- [ ] HTML5 Canvas rendering context set up (`imageSmoothingEnabled = false`)
-- [ ] Test map created (64x64, grass/forest/water/roads/buildings)
-- [ ] Tile rendering with colored rectangles (placeholder art)
-- [ ] Scrolling viewport centered on a position
-- [ ] Viewport scrolls smoothly (sub-tile precision)
+- [x] HTML5 Canvas rendering context set up (`imageSmoothingEnabled = false`)
+- [x] Test map created (64x64, grass/forest/water/roads/buildings)
+- [x] Tile rendering with colored rectangles (placeholder art)
+- [x] Scrolling viewport centered on a position
+- [x] Viewport scrolls smoothly (sub-tile precision)
 
 ### Step 2: Tank Movement
-- [ ] Keyboard input capture (arrows or WASD)
-- [ ] 16-direction rotation
-- [ ] Acceleration and deceleration per terrain speed table
-- [ ] Terrain speed modifiers applied correctly (road fast, swamp slow, etc.)
-- [ ] Collision with impassable tiles (buildings, water, halfbuildings)
-- [ ] Tank sprite rendered (placeholder: colored triangle with direction)
-- [ ] Camera follows tank
+- [x] Keyboard input capture (arrows or WASD)
+- [x] 16-direction rotation
+- [x] Acceleration and deceleration per terrain speed table
+- [x] Terrain speed modifiers applied correctly (road fast, swamp slow, etc.)
+- [x] Collision with impassable tiles (buildings, water, halfbuildings)
+- [x] Tank sprite rendered (placeholder: colored triangle with direction)
+- [x] Camera follows tank
 
 ### Step 3: Shooting
-- [ ] Fire key spawns shell entity
-- [ ] Shell moves at correct speed in tank's facing direction (32 world/tick at 50 Hz, scaled to 20 Hz)
-- [ ] Shell-tile collision (stops at buildings, forests)
-- [ ] Building destruction: Building -> Halfbuilding -> Rubble
-- [ ] Rate of fire limited by reload timer (13 ticks at 50 Hz, scaled)
-- [ ] Shell lifetime/range correct (8 ticks at 50 Hz, scaled)
+- [x] Fire key spawns shell entity
+- [x] Shell moves at correct speed in tank's facing direction (32 world/tick at 50 Hz, scaled to 20 Hz)
+- [x] Shell-tile collision (stops at buildings, forests)
+- [x] Building destruction: Building -> Halfbuilding -> Rubble
+- [x] Rate of fire limited by reload timer (13 ticks at 50 Hz, scaled)
+- [x] Shell lifetime/range correct (8 ticks at 50 Hz, scaled)
 
 ### Step 4: Pillboxes
-- [ ] Neutral pillboxes placed on test map (4-6)
-- [ ] Pillbox detects player tank within 8-tile range
-- [ ] Pillbox fires shells at player
-- [ ] Anger mechanic: fire rate accelerates from 32-tick to 6-tick cooldown when shot at
-- [ ] Anger decays when not provoked
-- [ ] Health system: 15 HP, 5 damage per player shell
-- [ ] Pillbox destroyed at 0 HP, becomes collectible
+- [x] Neutral pillboxes placed on test map (4-6)
+- [x] Pillbox detects player tank within 8-tile range
+- [x] Pillbox fires shells at player
+- [x] Anger mechanic: fire rate accelerates from 32-tick to 6-tick cooldown when shot at
+- [x] Anger decays when not provoked
+- [x] Health system: 15 HP, 5 damage per player shell
+- [x] Pillbox destroyed at 0 HP, becomes collectible
 
 ### Step 5: Bases
-- [ ] Neutral bases placed on test map (4)
-- [ ] Drive over neutral base to claim it
-- [ ] Stopping on friendly base refuels: 1 shell/tick, 1 mine/tick, 5 armor/tick
-- [ ] Base has resource pools (90/90/90 max)
-- [ ] Base pools deplete during refueling
-- [ ] Base pools slowly restock (every 1670 ticks at 50 Hz, scaled)
+- [x] Neutral bases placed on test map (4)
+- [x] Drive over neutral base to claim it
+- [x] Stopping on friendly base refuels: 1 shell/tick, 1 mine/tick, 5 armor/tick
+- [x] Base has resource pools (90/90/90 max)
+- [x] Base pools deplete during refueling
+- [x] Base pools slowly restock (every 1670 ticks at 50 Hz, scaled)
 - [ ] Base capturable by enemy when armor reduced below threshold
 
 ### Step 6: Engineer
-- [ ] Send engineer to target tile (click or key+cursor)
-- [ ] Engineer exits tank, walks to target at terrain-dependent speed
-- [ ] Engineer performs action (build time: 20 ticks at 50 Hz, scaled)
-- [ ] Engineer walks back to tank after action
-- [ ] Harvest tree: forest -> grass, +4 wood
-- [ ] Build road: grass -> road, -2 wood
-- [ ] Build wall: grass -> building, -2 wood
+- [x] Send engineer to target tile (click or key+cursor)
+- [x] Engineer exits tank, walks to target at terrain-dependent speed
+- [x] Engineer performs action (build time: 20 ticks at 50 Hz, scaled)
+- [x] Engineer walks back to tank after action
+- [x] Harvest tree: forest -> grass, +4 wood
+- [x] Build road: grass -> road, -2 wood
+- [x] Build wall: grass -> building, -2 wood
 - [ ] Plant mine: -1 mine from inventory
-- [ ] Collect destroyed pillbox into inventory
-- [ ] Place carried pillbox: -4 wood, creates friendly pillbox
+- [x] Collect destroyed pillbox into inventory
+- [x] Place carried pillbox: -4 wood, creates friendly pillbox
 - [ ] Engineer dies to explosion within blast radius
-- [ ] Replacement parachutes in after delay
+- [x] Replacement parachutes in after delay
 
 ### Step 7: Mines
-- [ ] Tank drops mine at current position (costs 1 mine)
-- [ ] Mine detonates when any tank drives over it
-- [ ] Mine deals 10 damage
-- [ ] Detonation creates crater
-- [ ] Chain reaction: adjacent mines detonate after 10-tick delay (4-directional, not diagonal)
-- [ ] Crater flooding: crater adjacent to water becomes river after 16 ticks
-- [ ] Flood cascading to adjacent craters
+- [x] Tank drops mine at current position (costs 1 mine)
+- [x] Mine detonates when any tank drives over it
+- [x] Mine deals 10 damage
+- [x] Detonation creates crater
+- [x] Chain reaction: adjacent mines detonate after 10-tick delay (4-directional, not diagonal)
+- [x] Crater flooding: crater adjacent to water becomes river after 16 ticks
+- [x] Flood cascading to adjacent craters
 
 ### Step 8: Terrain Dynamics
 - [ ] Forest regrowth timer (simplified: regrow near existing forest after delay)
 - [ ] Bridge rendering: road placed on river tile renders as bridge
-- [ ] Building -> Halfbuilding -> Rubble two-stage destruction verified
-- [ ] HUD displays armor, shells, mines, wood counts
+- [x] Building -> Halfbuilding -> Rubble two-stage destruction verified
+- [x] HUD displays armor, shells, mines, wood counts
 
 ### Phase 1A Quality Gates
 - [ ] Debug HUD toggleable with F3 (frame time, draw calls, entity count)
 - [ ] Unit tests for `shared/physics.js` (tank movement per terrain type)
 - [ ] Unit tests for `shared/terrainTypes.js` (speed modifiers match doc 09)
-- [ ] Tank feels good to drive (momentum, terrain speed changes, wall collisions)
-- [ ] Pillboxes feel threatening but beatable
+- [x] Tank feels good to drive (momentum, terrain speed changes, wall collisions)
+- [x] Pillboxes feel threatening but beatable
 
 ---
 
