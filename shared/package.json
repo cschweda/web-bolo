@@ -8,6 +8,7 @@
     "./mapGenerator": "./mapGenerator.js",
     "./physics": "./physics.js",
     "./shells": "./shells.js",
+    "./pillboxes": "./pillboxes.js",
     "./mapFormat": "./mapFormat.js"
   }
 }

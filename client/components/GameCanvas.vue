@@ -3,6 +3,7 @@ import {
   TILE_SIZE_PX, TICK_RATE, TICK_INTERVAL_MS,
   WORLD_UNITS_PER_TILE, BRADIANS_PER_FRAME, BRADIANS_MAX,
   TANK_MAX_ARMOR, TANK_MAX_SHELLS, TANK_MAX_MINES, TANK_MAX_WOOD,
+  PILLBOX_COOLDOWN_IDLE, PILLBOX_COOLDOWN_MAX_FIRE,
 } from '@webbolo/shared/constants'
 import { TERRAIN, TERRAIN_COLORS, getBaseTerrain, getTankSpeed } from '@webbolo/shared/terrainTypes'
 import { generateTestMap } from '@webbolo/shared/mapGenerator'
@@ -11,6 +12,10 @@ import {
   getDirectionVector, rotationToFrame,
 } from '@webbolo/shared/physics'
 import { tryFireShell, stepShells } from '@webbolo/shared/shells'
+import {
+  createPillbox, stepPillboxes,
+  checkShellPillboxHits, checkShellTankHits,
+} from '@webbolo/shared/pillboxes'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -25,8 +30,11 @@ let tank: ReturnType<typeof createTank> | null = null
 let input: ReturnType<typeof createInput> | null = null
 
 // Shell entities
-let shells: ReturnType<typeof tryFireShell>[] = []
+let shells: any[] = []
 let impactFlashes: { x: number, y: number, age: number }[] = []
+
+// Pillbox entities (created from map data)
+let pillboxEntities: ReturnType<typeof createPillbox>[] = []
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -230,17 +238,34 @@ function renderFrame(alpha: number) {
   }
 
   // --- Render pillboxes ---
-  for (const pb of pillboxes) {
-    const worldPX = pb.x * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
-    const worldPY = pb.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
-    const screenX = viewW / 2 + (worldPX - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
-    const screenY = viewH / 2 + (worldPY - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+  for (const pb of pillboxEntities) {
+    const screenX = viewW / 2 + (pb.x - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const screenY = viewH / 2 + (pb.y - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
 
     if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) continue
     if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) continue
 
     const s = tileSize * 0.35
-    ctx.fillStyle = '#cccccc'
+
+    if (!pb.alive) {
+      // Dead pillbox — dark gray rubble X
+      ctx.strokeStyle = '#555555'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(screenX - s * 0.5, screenY - s * 0.5)
+      ctx.lineTo(screenX + s * 0.5, screenY + s * 0.5)
+      ctx.moveTo(screenX + s * 0.5, screenY - s * 0.5)
+      ctx.lineTo(screenX - s * 0.5, screenY + s * 0.5)
+      ctx.stroke()
+      continue
+    }
+
+    // Alive pillbox — diamond shape, color indicates anger
+    const angerPct = pb.anger / (PILLBOX_COOLDOWN_IDLE - PILLBOX_COOLDOWN_MAX_FIRE)
+    const r = Math.round(204 + 51 * angerPct)
+    const g = Math.round(204 - 150 * angerPct)
+    const b = Math.round(204 - 150 * angerPct)
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
     ctx.beginPath()
     ctx.moveTo(screenX, screenY - s)
     ctx.lineTo(screenX + s, screenY)
@@ -251,6 +276,19 @@ function renderFrame(alpha: number) {
     ctx.strokeStyle = '#666666'
     ctx.lineWidth = 1
     ctx.stroke()
+
+    // Health bar above pillbox
+    if (pb.health < pb.maxHealth) {
+      const barW = tileSize * 0.8
+      const barH = 3
+      const barX = screenX - barW / 2
+      const barY = screenY - s - 6
+      const hpPct = pb.health / pb.maxHealth
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(barX, barY, barW, barH)
+      ctx.fillStyle = hpPct > 0.5 ? '#44cc44' : hpPct > 0.25 ? '#cccc44' : '#cc4444'
+      ctx.fillRect(barX, barY, barW * hpPct, barH)
+    }
   }
 
   // --- Render shells ---
@@ -369,6 +407,12 @@ function gameLoop(timestamp: number) {
         tryFireShell(tank, shells)
       }
 
+      // Check shell-pillbox collisions (before stepping shells to check current positions)
+      checkShellPillboxHits(pillboxEntities, shells)
+
+      // Check shell-tank collisions (enemy/pillbox shells hitting player)
+      checkShellTankHits(tank, shells)
+
       // Step all shells (movement, terrain collision, destruction)
       const impacts = stepShells(shells, mapData.tiles, mapData.width, mapData.height)
       for (const imp of impacts) {
@@ -378,6 +422,9 @@ function gameLoop(timestamp: number) {
           age: 0,
         })
       }
+
+      // Step pillboxes (detection, firing at player)
+      stepPillboxes(pillboxEntities, tank, shells)
 
       // Age and remove impact flashes (visual only, 6 frames)
       for (let i = impactFlashes.length - 1; i >= 0; i--) {
@@ -418,6 +465,11 @@ onMounted(() => {
   // Generate test map and create tank
   mapData = generateTestMap(64, 64)
   input = createInput()
+
+  // Create pillbox entities from map data
+  pillboxEntities = mapData.pillboxes.map((pb: any) =>
+    createPillbox(pb.x, pb.y, pb.health ?? 15)
+  )
 
   // Spawn tank near the center of the map
   const spawnX = Math.floor(mapData.width / 2) + 2
