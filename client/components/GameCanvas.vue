@@ -5,7 +5,7 @@ import {
   TANK_MAX_ARMOR, TANK_MAX_SHELLS, TANK_MAX_MINES, TANK_MAX_WOOD,
   PILLBOX_COOLDOWN_IDLE, PILLBOX_COOLDOWN_MAX_FIRE,
 } from '@webbolo/shared/constants'
-import { TERRAIN, TERRAIN_COLORS, getBaseTerrain, getTankSpeed } from '@webbolo/shared/terrainTypes'
+import { TERRAIN, TERRAIN_COLORS, getBaseTerrain, getTankSpeed, isWater } from '@webbolo/shared/terrainTypes'
 import { generateTestMap } from '@webbolo/shared/mapGenerator'
 import {
   createTank, createInput, stepTank, worldToTile,
@@ -22,6 +22,7 @@ import {
   createEngineer, sendEngineer, stepEngineer, killEngineer,
   LGM_STATE,
 } from '@webbolo/shared/engineer'
+import { registerForRegrowth, stepRegrowth } from '@webbolo/shared/terrainDynamics'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -56,6 +57,9 @@ let engineer: ReturnType<typeof createEngineer> | null = null
 // Mouse cursor for engineer targeting
 let mouseScreenX = 0
 let mouseScreenY = 0
+
+// Terrain regrowth queue
+let regrowthQueue: { tileX: number, tileY: number, timer: number }[] = []
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -230,6 +234,27 @@ function renderFrame(alpha: number) {
 
       ctx.fillStyle = color
       ctx.fillRect(screenX, screenY, tileSize + 1, tileSize + 1)
+
+      // Bridge rendering: ROAD adjacent to water gets bridge planks
+      if (baseTerrain === TERRAIN.ROAD) {
+        const hasWaterNeighbor =
+          (tileY > 0 && isWater(getBaseTerrain(tiles[(tileY - 1) * mapW + tileX]))) ||
+          (tileY < mapH - 1 && isWater(getBaseTerrain(tiles[(tileY + 1) * mapW + tileX]))) ||
+          (tileX > 0 && isWater(getBaseTerrain(tiles[tileY * mapW + tileX - 1]))) ||
+          (tileX < mapW - 1 && isWater(getBaseTerrain(tiles[tileY * mapW + tileX + 1])))
+        if (hasWaterNeighbor) {
+          // Draw bridge planks
+          ctx.strokeStyle = '#776644'
+          ctx.lineWidth = 1
+          for (let p = 0; p < 3; p++) {
+            const py = screenY + tileSize * 0.2 + p * tileSize * 0.3
+            ctx.beginPath()
+            ctx.moveTo(screenX + 2, py)
+            ctx.lineTo(screenX + tileSize - 2, py)
+            ctx.stroke()
+          }
+        }
+      }
     }
   }
 
@@ -495,6 +520,10 @@ function gameLoop(timestamp: number) {
           y: imp.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2,
           age: 0,
         })
+        // Register forest destruction for regrowth
+        if (imp.terrainChanged && imp.oldTerrain === 5 /* FOREST */) {
+          registerForRegrowth(regrowthQueue, imp.x, imp.y)
+        }
       }
 
       // Step pillboxes (detection, firing at player)
@@ -519,8 +548,15 @@ function gameLoop(timestamp: number) {
 
       // Step engineer
       if (engineer) {
-        stepEngineer(engineer, tank, mapData.tiles, mapData.width, pillboxEntities)
+        const engEvent = stepEngineer(engineer, tank, mapData.tiles, mapData.width, pillboxEntities)
+        // Register harvested forest tiles for regrowth
+        if (engEvent?.type === 'harvested') {
+          registerForRegrowth(regrowthQueue, engEvent.tileX, engEvent.tileY)
+        }
       }
+
+      // Step terrain regrowth
+      stepRegrowth(regrowthQueue, mapData.tiles, mapData.width, mapData.height)
 
       // Age and remove impact flashes (visual only, 6 frames)
       for (let i = impactFlashes.length - 1; i >= 0; i--) {

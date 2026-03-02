@@ -12,6 +12,7 @@
     "./bases": "./bases.js",
     "./mines": "./mines.js",
     "./engineer": "./engineer.js",
+    "./terrainDynamics": "./terrainDynamics.js",
     "./mapFormat": "./mapFormat.js"
   }
 }
