@@ -56,6 +56,10 @@ export function createTank(tileX, tileY) {
     carriedPillboxes: 0,
     alive: true,
 
+    // Shooting
+    reloadTimer: 0,
+    playerIndex: 0,
+
     // Knockback state
     slideSpeed: 0,
     slideDx: 0,
@@ -153,6 +157,11 @@ export function rotationToFrame(rotation) {
  */
 export function stepTank(tank, input, tiles, mapWidth) {
   if (!tank.alive) return
+
+  // --- Reload timer ---
+  if (tank.reloadTimer > 0) {
+    tank.reloadTimer--
+  }
 
   // --- Rotation ---
   if (input.rotateLeft) {

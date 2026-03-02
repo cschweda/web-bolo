@@ -10,6 +10,7 @@ import {
   createTank, createInput, stepTank, worldToTile,
   getDirectionVector, rotationToFrame,
 } from '@webbolo/shared/physics'
+import { tryFireShell, stepShells } from '@webbolo/shared/shells'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -22,6 +23,10 @@ let ctx: CanvasRenderingContext2D | null = null
 let animFrameId = 0
 let tank: ReturnType<typeof createTank> | null = null
 let input: ReturnType<typeof createInput> | null = null
+
+// Shell entities
+let shells: ReturnType<typeof tryFireShell>[] = []
+let impactFlashes: { x: number, y: number, age: number }[] = []
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -248,6 +253,44 @@ function renderFrame(alpha: number) {
     ctx.stroke()
   }
 
+  // --- Render shells ---
+  for (const shell of shells) {
+    const sx = viewW / 2 + (shell.x - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const sy = viewH / 2 + (shell.y - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+
+    if (sx < -tileSize || sx > viewW + tileSize) continue
+    if (sy < -tileSize || sy > viewH + tileSize) continue
+
+    ctx.fillStyle = '#ffff44'
+    ctx.beginPath()
+    ctx.arc(sx, sy, 3, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(sx, sy, 1.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // --- Render impact flashes ---
+  for (const flash of impactFlashes) {
+    const fx = viewW / 2 + (flash.x - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const fy = viewH / 2 + (flash.y - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+
+    if (fx < -tileSize * 2 || fx > viewW + tileSize * 2) continue
+    if (fy < -tileSize * 2 || fy > viewH + tileSize * 2) continue
+
+    const flashAlpha = 1 - flash.age / 6
+    const flashRadius = tileSize * 0.3 + flash.age * 2
+    ctx.fillStyle = `rgba(255, 200, 50, ${flashAlpha * 0.8})`
+    ctx.beginPath()
+    ctx.arc(fx, fy, flashRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = `rgba(255, 255, 200, ${flashAlpha})`
+    ctx.beginPath()
+    ctx.arc(fx, fy, flashRadius * 0.4, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
   // --- Render player tank ---
   drawTank(camWorldX, camWorldY, tank.rotation, camWorldX, camWorldY, '#44aa44', '#226622')
 
@@ -283,9 +326,9 @@ function renderFrame(alpha: number) {
   dbgY += 14
   ctx.fillText(`FPS: ${fps}  TPS: ${tps}`, dbgX, dbgY)
   dbgY += 14
-  ctx.fillText(`Controls: Arrows/WASD to move`, dbgX, dbgY)
+  ctx.fillText(`Space=shoot  Shells in flight: ${shells.length}`, dbgX, dbgY)
   dbgY += 14
-  ctx.fillText(`Engineer: ${tank.hasEngineer ? 'Ready' : 'Dead'}  Pillboxes: ${tank.carriedPillboxes}`, dbgX, dbgY)
+  ctx.fillText(`Reload: ${tank.reloadTimer > 0 ? tank.reloadTimer : 'Ready'}  Engineer: ${tank.hasEngineer ? 'Ready' : 'Dead'}`, dbgX, dbgY)
 
   // --- FPS counter ---
   frameCount++
@@ -320,6 +363,27 @@ function gameLoop(timestamp: number) {
     readInput()
     if (tank && input && mapData) {
       stepTank(tank, input, mapData.tiles, mapData.width)
+
+      // Fire shell on spacebar
+      if (input.fire) {
+        tryFireShell(tank, shells)
+      }
+
+      // Step all shells (movement, terrain collision, destruction)
+      const impacts = stepShells(shells, mapData.tiles, mapData.width, mapData.height)
+      for (const imp of impacts) {
+        impactFlashes.push({
+          x: imp.x * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2,
+          y: imp.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2,
+          age: 0,
+        })
+      }
+
+      // Age and remove impact flashes (visual only, 6 frames)
+      for (let i = impactFlashes.length - 1; i >= 0; i--) {
+        impactFlashes[i].age++
+        if (impactFlashes[i].age > 6) impactFlashes.splice(i, 1)
+      }
     }
 
     tickAccumulator -= TICK_TIME
