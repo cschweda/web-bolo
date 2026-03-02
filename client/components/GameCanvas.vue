@@ -1,25 +1,48 @@
 <script setup lang="ts">
-import { TILE_SIZE_PX } from '@webbolo/shared/constants'
-import { TERRAIN, TERRAIN_COLORS, getBaseTerrain } from '@webbolo/shared/terrainTypes'
+import {
+  TILE_SIZE_PX, TICK_RATE, TICK_INTERVAL_MS,
+  WORLD_UNITS_PER_TILE, BRADIANS_PER_FRAME, BRADIANS_MAX,
+  TANK_MAX_ARMOR, TANK_MAX_SHELLS, TANK_MAX_MINES, TANK_MAX_WOOD,
+} from '@webbolo/shared/constants'
+import { TERRAIN, TERRAIN_COLORS, getBaseTerrain, getTankSpeed } from '@webbolo/shared/terrainTypes'
 import { generateTestMap } from '@webbolo/shared/mapGenerator'
+import {
+  createTank, createInput, stepTank, worldToTile,
+  getDirectionVector, rotationToFrame,
+} from '@webbolo/shared/physics'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
-// Camera position (world coordinates — tile + sub-tile)
-const camera = reactive({
-  x: 0,
-  y: 0,
-})
-
-// Track pressed keys for smooth camera movement
+// Track pressed keys
 const keys = reactive(new Set<string>())
 
 // Game state
 let mapData: ReturnType<typeof generateTestMap> | null = null
 let ctx: CanvasRenderingContext2D | null = null
 let animFrameId = 0
+let tank: ReturnType<typeof createTank> | null = null
+let input: ReturnType<typeof createInput> | null = null
 
-const CAMERA_SPEED = 4 // Tiles per second for keyboard scrolling
+// Fixed timestep accumulator
+let lastFrameTime = 0
+let tickAccumulator = 0
+const TICK_TIME = 1 / TICK_RATE // 0.05 seconds
+
+// Previous tank state for interpolation
+let prevTankX = 0
+let prevTankY = 0
+
+// Scale factor for rendering
+const SCALE = 2
+const tileSize = TILE_SIZE_PX * SCALE
+
+// Debug stats
+let frameCount = 0
+let lastFpsTime = 0
+let fps = 0
+let ticksThisSecond = 0
+let lastTickCountTime = 0
+let tps = 0
 
 function resize() {
   if (!canvasRef.value) return
@@ -27,47 +50,143 @@ function resize() {
   canvasRef.value.height = window.innerHeight
 }
 
-function renderFrame() {
-  if (!ctx || !canvasRef.value || !mapData) return
+/**
+ * Read keyboard state into the input object for the current tick.
+ */
+function readInput() {
+  if (!input) return
+  input.forward = keys.has('ArrowUp') || keys.has('w')
+  input.backward = keys.has('ArrowDown') || keys.has('s')
+  input.rotateLeft = keys.has('ArrowLeft') || keys.has('a')
+  input.rotateRight = keys.has('ArrowRight') || keys.has('d')
+  input.fire = keys.has(' ')
+  input.dropMine = keys.has('m')
+}
+
+/**
+ * Draw a tank sprite (colored triangle showing direction).
+ */
+function drawTank(
+  tankX: number, tankY: number, rotation: number,
+  cameraWorldX: number, cameraWorldY: number,
+  color: string, outlineColor: string,
+) {
+  if (!ctx || !canvasRef.value) return
+
+  const canvas = canvasRef.value
+  const viewW = canvas.width
+  const viewH = canvas.height
+
+  // Convert world coords to screen coords
+  const screenX = viewW / 2 + (tankX - cameraWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+  const screenY = viewH / 2 + (tankY - cameraWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+
+  // Skip if off screen
+  if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) return
+  if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) return
+
+  const size = tileSize * 0.5
+  const angleRad = rotation * (Math.PI * 2 / BRADIANS_MAX)
+
+  ctx.save()
+  ctx.translate(screenX, screenY)
+  ctx.rotate(angleRad)
+
+  // Tank body (rounded rect approximation)
+  ctx.fillStyle = color
+  ctx.beginPath()
+  ctx.roundRect(-size * 0.6, -size * 0.7, size * 1.2, size * 1.4, 3)
+  ctx.fill()
+  ctx.strokeStyle = outlineColor
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  // Turret (line pointing forward)
+  ctx.strokeStyle = outlineColor
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(0, -size * 0.2)
+  ctx.lineTo(0, -size * 1.0)
+  ctx.stroke()
+
+  // Turret dot
+  ctx.fillStyle = outlineColor
+  ctx.beginPath()
+  ctx.arc(0, -size * 0.2, 3, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.restore()
+}
+
+/**
+ * Draw a resource bar in the HUD.
+ */
+function drawResourceBar(
+  x: number, y: number, w: number, h: number,
+  value: number, max: number,
+  label: string, barColor: string,
+) {
+  if (!ctx) return
+  const pct = Math.max(0, Math.min(1, value / max))
+
+  // Background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+  ctx.fillRect(x, y, w, h)
+
+  // Bar fill
+  ctx.fillStyle = barColor
+  ctx.fillRect(x + 1, y + 1, (w - 2) * pct, h - 2)
+
+  // Label
+  ctx.fillStyle = '#ffffff'
+  ctx.font = '11px monospace'
+  ctx.textAlign = 'left'
+  ctx.fillText(`${label}: ${value}`, x + 4, y + h - 4)
+}
+
+function renderFrame(alpha: number) {
+  if (!ctx || !canvasRef.value || !mapData || !tank) return
 
   const canvas = canvasRef.value
   const { tiles, width: mapW, height: mapH, pillboxes, bases } = mapData
-  const tileSize = TILE_SIZE_PX * 2 // 2x scale for visibility
 
-  // Calculate viewport bounds (which tiles are visible)
   const viewW = canvas.width
   const viewH = canvas.height
-  const tilesAcross = Math.ceil(viewW / tileSize) + 1
-  const tilesDown = Math.ceil(viewH / tileSize) + 1
+  const tilesAcross = Math.ceil(viewW / tileSize) + 2
+  const tilesDown = Math.ceil(viewH / tileSize) + 2
 
-  // Camera offset within a tile (for smooth scrolling)
-  const camTileX = Math.floor(camera.x)
-  const camTileY = Math.floor(camera.y)
-  const offsetX = -(camera.x - camTileX) * tileSize
-  const offsetY = -(camera.y - camTileY) * tileSize
+  // Interpolate camera position between previous and current tank position
+  const camWorldX = prevTankX + (tank.x - prevTankX) * alpha
+  const camWorldY = prevTankY + (tank.y - prevTankY) * alpha
 
-  // Calculate the top-left tile that's visible
-  const startTileX = camTileX - Math.floor(tilesAcross / 2)
-  const startTileY = camTileY - Math.floor(tilesDown / 2)
+  // Camera in tile coordinates (for tile rendering)
+  const camTileX = camWorldX / WORLD_UNITS_PER_TILE
+  const camTileY = camWorldY / WORLD_UNITS_PER_TILE
 
-  // Clear canvas
+  // Top-left tile visible
+  const startTileX = Math.floor(camTileX) - Math.floor(tilesAcross / 2)
+  const startTileY = Math.floor(camTileY) - Math.floor(tilesDown / 2)
+
+  // Sub-tile offset for smooth scrolling
+  const fracX = camTileX - Math.floor(camTileX)
+  const fracY = camTileY - Math.floor(camTileY)
+
+  // Clear
   ctx.fillStyle = '#000011'
   ctx.fillRect(0, 0, viewW, viewH)
 
-  // Render visible tiles
+  // --- Render terrain tiles ---
   for (let row = 0; row < tilesDown; row++) {
     for (let col = 0; col < tilesAcross; col++) {
       const tileX = startTileX + col
       const tileY = startTileY + row
 
-      // Screen position
-      const screenX = col * tileSize + offsetX
-      const screenY = row * tileSize + offsetY
+      const screenX = (col - (tilesAcross / 2 - (Math.floor(camTileX) - startTileX)) - fracX) * tileSize + viewW / 2
+      const screenY = (row - (tilesDown / 2 - (Math.floor(camTileY) - startTileY)) - fracY) * tileSize + viewH / 2
 
-      // Skip tiles outside map bounds
       if (tileX < 0 || tileX >= mapW || tileY < 0 || tileY >= mapH) {
         ctx.fillStyle = TERRAIN_COLORS[TERRAIN.DEEP_SEA]
-        ctx.fillRect(screenX, screenY, tileSize, tileSize)
+        ctx.fillRect(screenX, screenY, tileSize + 1, tileSize + 1)
         continue
       }
 
@@ -76,29 +195,52 @@ function renderFrame() {
       const color = TERRAIN_COLORS[baseTerrain] || TERRAIN_COLORS[TERRAIN.DEEP_SEA]
 
       ctx.fillStyle = color
-      ctx.fillRect(screenX, screenY, tileSize, tileSize)
-
-      // Draw subtle grid lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)'
-      ctx.strokeRect(screenX, screenY, tileSize, tileSize)
+      ctx.fillRect(screenX, screenY, tileSize + 1, tileSize + 1)
     }
   }
 
-  // Render pillboxes as small diamonds
+  // --- Render bases ---
+  for (const base of bases) {
+    const worldBX = base.x * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
+    const worldBY = base.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
+    const screenX = viewW / 2 + (worldBX - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const screenY = viewH / 2 + (worldBY - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
+
+    if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) continue
+    if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) continue
+
+    const s = tileSize * 0.4
+    ctx.fillStyle = '#ddaa00'
+    ctx.fillRect(screenX - s, screenY - s, s * 2, s * 2)
+    ctx.strokeStyle = '#886600'
+    ctx.lineWidth = 1
+    ctx.strokeRect(screenX - s, screenY - s, s * 2, s * 2)
+    // Cross
+    ctx.beginPath()
+    ctx.moveTo(screenX - s * 0.6, screenY)
+    ctx.lineTo(screenX + s * 0.6, screenY)
+    ctx.moveTo(screenX, screenY - s * 0.6)
+    ctx.lineTo(screenX, screenY + s * 0.6)
+    ctx.stroke()
+  }
+
+  // --- Render pillboxes ---
   for (const pb of pillboxes) {
-    const screenX = (pb.x - startTileX) * tileSize + offsetX + tileSize / 2
-    const screenY = (pb.y - startTileY) * tileSize + offsetY + tileSize / 2
+    const worldPX = pb.x * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
+    const worldPY = pb.y * WORLD_UNITS_PER_TILE + WORLD_UNITS_PER_TILE / 2
+    const screenX = viewW / 2 + (worldPX - camWorldX) * (tileSize / WORLD_UNITS_PER_TILE)
+    const screenY = viewH / 2 + (worldPY - camWorldY) * (tileSize / WORLD_UNITS_PER_TILE)
 
-    if (screenX < -tileSize || screenX > viewW + tileSize) continue
-    if (screenY < -tileSize || screenY > viewH + tileSize) continue
+    if (screenX < -tileSize * 2 || screenX > viewW + tileSize * 2) continue
+    if (screenY < -tileSize * 2 || screenY > viewH + tileSize * 2) continue
 
-    const size = tileSize * 0.4
+    const s = tileSize * 0.35
     ctx.fillStyle = '#cccccc'
     ctx.beginPath()
-    ctx.moveTo(screenX, screenY - size)
-    ctx.lineTo(screenX + size, screenY)
-    ctx.lineTo(screenX, screenY + size)
-    ctx.lineTo(screenX - size, screenY)
+    ctx.moveTo(screenX, screenY - s)
+    ctx.lineTo(screenX + s, screenY)
+    ctx.lineTo(screenX, screenY + s)
+    ctx.lineTo(screenX - s, screenY)
     ctx.closePath()
     ctx.fill()
     ctx.strokeStyle = '#666666'
@@ -106,84 +248,93 @@ function renderFrame() {
     ctx.stroke()
   }
 
-  // Render bases as squares with a cross
-  for (const base of bases) {
-    const screenX = (base.x - startTileX) * tileSize + offsetX
-    const screenY = (base.y - startTileY) * tileSize + offsetY
+  // --- Render player tank ---
+  drawTank(camWorldX, camWorldY, tank.rotation, camWorldX, camWorldY, '#44aa44', '#226622')
 
-    if (screenX < -tileSize || screenX > viewW + tileSize) continue
-    if (screenY < -tileSize || screenY > viewH + tileSize) continue
+  // --- HUD ---
+  const hudX = 12
+  const hudY = 12
+  const barW = 160
+  const barH = 18
+  const gap = 3
 
-    const pad = tileSize * 0.15
-    ctx.fillStyle = '#ddaa00'
-    ctx.fillRect(screenX + pad, screenY + pad, tileSize - pad * 2, tileSize - pad * 2)
-    ctx.strokeStyle = '#886600'
-    ctx.lineWidth = 1
-    ctx.strokeRect(screenX + pad, screenY + pad, tileSize - pad * 2, tileSize - pad * 2)
+  drawResourceBar(hudX, hudY, barW, barH, tank.armor, TANK_MAX_ARMOR, 'Armor', '#44cc44')
+  drawResourceBar(hudX, hudY + barH + gap, barW, barH, tank.shells, TANK_MAX_SHELLS, 'Shells', '#cc8844')
+  drawResourceBar(hudX, hudY + (barH + gap) * 2, barW, barH, tank.mines, TANK_MAX_MINES, 'Mines', '#cc4444')
+  drawResourceBar(hudX, hudY + (barH + gap) * 3, barW, barH, tank.wood, TANK_MAX_WOOD, 'Wood', '#88aa44')
 
-    // Cross
-    const cx = screenX + tileSize / 2
-    const cy = screenY + tileSize / 2
-    const arm = tileSize * 0.2
-    ctx.strokeStyle = '#886600'
-    ctx.beginPath()
-    ctx.moveTo(cx - arm, cy)
-    ctx.lineTo(cx + arm, cy)
-    ctx.moveTo(cx, cy - arm)
-    ctx.lineTo(cx, cy + arm)
-    ctx.stroke()
-  }
+  // Debug info
+  const { tileX, tileY } = worldToTile(tank.x, tank.y)
+  const terrain = mapData.tiles[tileY * mapW + tileX]
+  const baseTerrain = getBaseTerrain(terrain)
+  const terrainName = Object.entries(TERRAIN).find(([, v]) => v === baseTerrain)?.[0] || '?'
+  const maxSpd = getTankSpeed(terrain)
 
-  // Draw crosshair at camera center
-  const centerX = viewW / 2
-  const centerY = viewH / 2
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(centerX - 10, centerY)
-  ctx.lineTo(centerX + 10, centerY)
-  ctx.moveTo(centerX, centerY - 10)
-  ctx.lineTo(centerX, centerY + 10)
-  ctx.stroke()
-
-  // Debug HUD (top-left)
   ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
-  ctx.fillRect(8, 8, 220, 70)
+  ctx.fillRect(hudX, hudY + (barH + gap) * 4 + 4, barW + 60, 80)
   ctx.fillStyle = '#00ff88'
-  ctx.font = '12px monospace'
+  ctx.font = '11px monospace'
   ctx.textAlign = 'left'
-  ctx.fillText(`Camera: ${camera.x.toFixed(1)}, ${camera.y.toFixed(1)}`, 16, 26)
-  ctx.fillText(`Tile: ${camTileX}, ${camTileY}`, 16, 42)
-  ctx.fillText(`Map: ${mapW}x${mapH} | Pillboxes: ${pillboxes.length} | Bases: ${bases.length}`, 16, 58)
-  ctx.fillText(`Arrow keys / WASD to scroll`, 16, 74)
+  const dbgX = hudX + 6
+  let dbgY = hudY + (barH + gap) * 4 + 18
+  ctx.fillText(`Tile: ${tileX},${tileY}  Terrain: ${terrainName}`, dbgX, dbgY)
+  dbgY += 14
+  ctx.fillText(`Speed: ${tank.speed.toFixed(1)} / ${maxSpd}  Rot: ${tank.rotation}`, dbgX, dbgY)
+  dbgY += 14
+  ctx.fillText(`FPS: ${fps}  TPS: ${tps}`, dbgX, dbgY)
+  dbgY += 14
+  ctx.fillText(`Controls: Arrows/WASD to move`, dbgX, dbgY)
+  dbgY += 14
+  ctx.fillText(`Engineer: ${tank.hasEngineer ? 'Ready' : 'Dead'}  Pillboxes: ${tank.carriedPillboxes}`, dbgX, dbgY)
+
+  // --- FPS counter ---
+  frameCount++
+  if (lastFrameTime - lastFpsTime >= 1000) {
+    fps = frameCount
+    frameCount = 0
+    lastFpsTime = lastFrameTime
+
+    tps = ticksThisSecond
+    ticksThisSecond = 0
+    lastTickCountTime = lastFrameTime
+  }
 }
 
-let lastTime = 0
-
 function gameLoop(timestamp: number) {
-  const dt = lastTime ? (timestamp - lastTime) / 1000 : 0
-  lastTime = timestamp
+  const dt = lastFrameTime ? (timestamp - lastFrameTime) / 1000 : 0
+  lastFrameTime = timestamp
 
-  // Move camera based on pressed keys
-  const speed = CAMERA_SPEED * dt
-  if (keys.has('ArrowUp') || keys.has('w')) camera.y -= speed
-  if (keys.has('ArrowDown') || keys.has('s')) camera.y += speed
-  if (keys.has('ArrowLeft') || keys.has('a')) camera.x -= speed
-  if (keys.has('ArrowRight') || keys.has('d')) camera.x += speed
+  // Cap dt to prevent spiral of death after tab-switch
+  const clampedDt = Math.min(dt, 0.1)
+  tickAccumulator += clampedDt
 
-  // Clamp camera to map bounds
-  if (mapData) {
-    camera.x = Math.max(0, Math.min(mapData.width - 1, camera.x))
-    camera.y = Math.max(0, Math.min(mapData.height - 1, camera.y))
+  // Run fixed-timestep physics
+  while (tickAccumulator >= TICK_TIME) {
+    // Save previous position for interpolation
+    if (tank) {
+      prevTankX = tank.x
+      prevTankY = tank.y
+    }
+
+    // Read input and step physics
+    readInput()
+    if (tank && input && mapData) {
+      stepTank(tank, input, mapData.tiles, mapData.width)
+    }
+
+    tickAccumulator -= TICK_TIME
+    ticksThisSecond++
   }
 
-  renderFrame()
+  // Render with interpolation (alpha = fraction of tick elapsed)
+  const alpha = tickAccumulator / TICK_TIME
+  renderFrame(alpha)
+
   animFrameId = requestAnimationFrame(gameLoop)
 }
 
 function onKeyDown(e: KeyboardEvent) {
   keys.add(e.key)
-  // Prevent arrow keys from scrolling the page
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
     e.preventDefault()
   }
@@ -198,25 +349,27 @@ onMounted(() => {
 
   ctx = canvasRef.value.getContext('2d')
   if (!ctx) return
-
-  // Disable image smoothing for crisp pixel art
   ctx.imageSmoothingEnabled = false
 
-  // Generate the test map
+  // Generate test map and create tank
   mapData = generateTestMap(64, 64)
+  input = createInput()
 
-  // Center camera on the map
-  camera.x = mapData.width / 2
-  camera.y = mapData.height / 2
+  // Spawn tank near the center of the map
+  const spawnX = Math.floor(mapData.width / 2) + 2
+  const spawnY = Math.floor(mapData.height / 2) + 2
+  tank = createTank(spawnX, spawnY)
 
-  // Set up canvas size
+  prevTankX = tank.x
+  prevTankY = tank.y
+
   resize()
 
-  // Start the render loop
-  lastTime = 0
+  // Start game loop
+  lastFrameTime = 0
+  tickAccumulator = 0
   animFrameId = requestAnimationFrame(gameLoop)
 
-  // Event listeners
   window.addEventListener('resize', resize)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
