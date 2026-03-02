@@ -17,6 +17,7 @@ import {
   checkShellPillboxHits, checkShellTankHits,
 } from '@webbolo/shared/pillboxes'
 import { createBase, stepBases } from '@webbolo/shared/bases'
+import { dropMine, checkMineDetonation, stepMineEffects } from '@webbolo/shared/mines'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -39,6 +40,11 @@ let pillboxEntities: ReturnType<typeof createPillbox>[] = []
 
 // Base entities (created from map data)
 let baseEntities: ReturnType<typeof createBase>[] = []
+
+// Mine system state
+let pendingDetonations: { tileX: number, tileY: number, delay: number }[] = []
+let pendingFloods: { tileX: number, tileY: number, delay: number }[] = []
+let mineDropCooldown = 0
 
 // Fixed timestep accumulator
 let lastFrameTime = 0
@@ -444,6 +450,20 @@ function gameLoop(timestamp: number) {
 
       // Step bases (claiming, refueling, restocking)
       stepBases(baseEntities, tank)
+
+      // Drop mine on M key
+      if (input.dropMine && mineDropCooldown <= 0) {
+        if (dropMine(tank, mapData.tiles, mapData.width)) {
+          mineDropCooldown = 5 // Prevent rapid-fire mine dropping
+        }
+      }
+      if (mineDropCooldown > 0) mineDropCooldown--
+
+      // Check if tank is on a mine
+      checkMineDetonation(tank, mapData.tiles, mapData.width, mapData.height, pendingDetonations, pendingFloods)
+
+      // Step chain detonations and flooding
+      stepMineEffects(mapData.tiles, mapData.width, mapData.height, pendingDetonations, pendingFloods)
 
       // Age and remove impact flashes (visual only, 6 frames)
       for (let i = impactFlashes.length - 1; i >= 0; i--) {

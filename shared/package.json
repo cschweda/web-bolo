@@ -10,6 +10,7 @@
     "./shells": "./shells.js",
     "./pillboxes": "./pillboxes.js",
     "./bases": "./bases.js",
+    "./mines": "./mines.js",
     "./mapFormat": "./mapFormat.js"
   }
 }
